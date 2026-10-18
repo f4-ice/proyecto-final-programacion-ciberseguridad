@@ -43,52 +43,52 @@ from typing import Any, Iterable, Iterator
 # Constantes
 # ---------------------------------------------------------------------------
 
-SUPPORTED_EXTENSIONS = {".txt", ".csv"}
+EXTENSIONES_SOPORTADAS = {".txt", ".csv"}
 
-MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
-MAX_LINE_LENGTH = 10_000
-MAX_LOG_VALUE_LENGTH: int = 200
-MAX_PATH_LENGTH: int = 4096
+TAMANO_MAXIMO_ARCHIVO_BYTES = 10 * 1024 * 1024
+LONGITUD_MAXIMA_LINEA = 10_000
+LONGITUD_MAXIMA_VALOR_LOG: int = 200
+LONGITUD_MAXIMA_RUTA: int = 4096
 
-DEFAULT_INPUT_DIR = Path("data/input")
-DEFAULT_OUTPUT_DIR = Path("data/output")
-DEFAULT_LOG_DIR = Path("logs")
-LOG_FILE_NAME = "security_events.log"
+DIRECTORIO_ENTRADA_PREDETERMINADO = Path("data/input")
+DIRECTORIO_SALIDA_PREDETERMINADO = Path("data/output")
+DIRECTORIO_LOG_PREDETERMINADO = Path("logs")
+NOMBRE_ARCHIVO_LOG = "security_events.log"
 
-INPUT_ENCODING: str = "utf-8"
-OUTPUT_ENCODING = "utf-8"
-CSV_DELIMITER = ","
-TXT_FIELD_DELIMITER: str = "|"
+CODIFICACION_ENTRADA: str = "utf-8"
+CODIFICACION_SALIDA = "utf-8"
+DELIMITADOR_CSV = ","
+DELIMITADOR_CAMPO_TXT: str = "|"
 
-EMPTY_VALUES: set[str] = {"", "-", "null", "none", "na", "n/a"}
+VALORES_VACIOS: set[str] = {"", "-", "null", "none", "na", "n/a"}
 
-ACCEPTED_DATE_FORMATS: tuple[str, ...] = (
+FORMATOS_FECHA_ACEPTADOS: tuple[str, ...] = (
     "%Y-%m-%d",
     "%d/%m/%Y",
     "%m/%d/%Y",
     "%Y/%m/%d",
 )
-STANDARD_DATE_FORMAT: str = "%Y-%m-%d"
+FORMATO_FECHA_ESTANDAR: str = "%Y-%m-%d"
 
 # Campos obligatorios del esquema esperado. Ajustar segun los datos reales
 # del proyecto (p. ej. agregar "fecha", "monto", etc. si son obligatorios).
-REQUIRED_FIELDS: tuple[str, ...] = ("id",)
+CAMPOS_OBLIGATORIOS: tuple[str, ...] = ("id",)
 
-CONTROL_CHARACTERS_PATTERN = re.compile(r"[\x00-\x1f\x7f]")
-MULTIPLE_WHITESPACE_PATTERN = re.compile(r"\s+")
-INVALID_FIELD_NAME_PATTERN = re.compile(r"[^a-z0-9_]+")
-PATH_TRAVERSAL_PATTERN = re.compile(r"\.\.(/|\\|$)")
+PATRON_CARACTERES_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+PATRON_ESPACIOS_MULTIPLES = re.compile(r"\s+")
+PATRON_NOMBRE_CAMPO_INVALIDO = re.compile(r"[^a-z0-9_]+")
+PATRON_SALTO_DIRECTORIO = re.compile(r"\.\.(/|\\|$)")
 
 
 # ---------------------------------------------------------------------------
 # Excepciones personalizadas
 # ---------------------------------------------------------------------------
 
-class IngestionError(Exception):
+class ErrorIngesta(Exception):
     """Error controlado durante el proceso de ingesta."""
 
 
-class SecurityEventError(IngestionError):
+class ErrorEventoSeguridad(ErrorIngesta):
     """Error que ademas debe registrarse como evento de seguridad."""
 
 
@@ -96,62 +96,62 @@ class SecurityEventError(IngestionError):
 # Logging y eventos de seguridad
 # ---------------------------------------------------------------------------
 
-def configure_logging(log_dir: Path = DEFAULT_LOG_DIR) -> logging.Logger:
-    """Configura (una sola vez) un logger de archivo para eventos de seguridad."""
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / LOG_FILE_NAME
+def configurar_logging(directorio_log: Path = DIRECTORIO_LOG_PREDETERMINADO) -> logging.Logger:
+    """Configura (una sola vez) un registrador de archivo para eventos de seguridad."""
+    directorio_log.mkdir(parents=True, exist_ok=True)
+    ruta_log = directorio_log / NOMBRE_ARCHIVO_LOG
 
-    logger = logging.getLogger("ingestion")
-    logger.setLevel(logging.INFO)
+    registrador = logging.getLogger("ingestion")
+    registrador.setLevel(logging.INFO)
 
-    if logger.handlers:
-        return logger
+    if registrador.handlers:
+        return registrador
 
-    handler = logging.FileHandler(log_path, encoding="utf-8")
-    formatter = logging.Formatter(
-        fmt="%(asctime)s | %(levelname)s | %(event)s | %(message)s",
+    manejador = logging.FileHandler(ruta_log, encoding="utf-8")
+    formateador = logging.Formatter(
+        fmt="%(asctime)s | %(levelname)s | %(evento)s | %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S%z",
     )
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    return logger
+    manejador.setFormatter(formateador)
+    registrador.addHandler(manejador)
+    return registrador
 
 
-def sanitize_for_log(value: Any, max_length: int = MAX_LOG_VALUE_LENGTH) -> str:
+def sanear_para_log(valor: Any, longitud_maxima: int = LONGITUD_MAXIMA_VALOR_LOG) -> str:
     """Neutraliza datos no confiables antes de escribirlos en el log.
 
     Evita inyeccion de saltos de linea (log forging), caracteres de control
     y trunca valores excesivamente largos.
     """
-    safe_value = str(value)
-    safe_value = safe_value.replace("\r", "\\r").replace("\n", "\\n")
-    safe_value = CONTROL_CHARACTERS_PATTERN.sub("", safe_value)
-    safe_value = safe_value.replace("|", "\\|")
-    if len(safe_value) > max_length:
-        safe_value = safe_value[:max_length] + "...[truncado]"
-    return safe_value
+    valor_seguro = str(valor)
+    valor_seguro = valor_seguro.replace("\r", "\\r").replace("\n", "\\n")
+    valor_seguro = PATRON_CARACTERES_CONTROL.sub("", valor_seguro)
+    valor_seguro = valor_seguro.replace("|", "\\|")
+    if len(valor_seguro) > longitud_maxima:
+        valor_seguro = valor_seguro[:longitud_maxima] + "...[truncado]"
+    return valor_seguro
 
 
-def log_security_event(
-    logger: logging.Logger,
-    event: str,
-    description: str,
-    level: int = logging.WARNING,
-    **context: Any,
+def registrar_evento_seguridad(
+    registrador: logging.Logger,
+    evento: str,
+    descripcion: str,
+    nivel: int = logging.WARNING,
+    **contexto: Any,
 ) -> None:
     """Registra un evento de seguridad estructurado y saneado."""
     try:
-        safe_context = {
-            key: sanitize_for_log(value) for key, value in context.items()
+        contexto_seguro = {
+            clave: sanear_para_log(valor) for clave, valor in contexto.items()
         }
-        logger.log(
-            level,
-            sanitize_for_log(description),
-            extra={"event": event, **safe_context},
+        registrador.log(
+            nivel,
+            sanear_para_log(descripcion),
+            extra={"evento": evento, **contexto_seguro},
         )
-    except Exception as logging_error:  # el logging nunca debe tumbar el flujo
+    except Exception as error_registro:  # el logging nunca debe tumbar el flujo
         print(
-            f"No fue posible escribir el evento de seguridad '{event}': {logging_error}",
+            f"No fue posible escribir el evento de seguridad '{evento}': {error_registro}",
             file=sys.stderr,
         )
 
@@ -160,362 +160,362 @@ def log_security_event(
 # Normalizacion
 # ---------------------------------------------------------------------------
 
-def normalize_text(value: Any) -> str:
+def normalizar_texto(valor: Any) -> str:
     """Normaliza texto: Unicode NFC, caracteres de control y espacios."""
-    if value is None:
+    if valor is None:
         return ""
-    normalized_value = str(value)
-    normalized_value = unicodedata.normalize("NFC", normalized_value)
-    normalized_value = normalized_value.replace("\r\n", " ")
-    normalized_value = normalized_value.replace("\r", " ")
-    normalized_value = normalized_value.replace("\n", " ")
-    normalized_value = CONTROL_CHARACTERS_PATTERN.sub("", normalized_value)
-    normalized_value = normalized_value.strip()
-    normalized_value = MULTIPLE_WHITESPACE_PATTERN.sub(" ", normalized_value)
-    return normalized_value
+    valor_normalizado = str(valor)
+    valor_normalizado = unicodedata.normalize("NFC", valor_normalizado)
+    valor_normalizado = valor_normalizado.replace("\r\n", " ")
+    valor_normalizado = valor_normalizado.replace("\r", " ")
+    valor_normalizado = valor_normalizado.replace("\n", " ")
+    valor_normalizado = PATRON_CARACTERES_CONTROL.sub("", valor_normalizado)
+    valor_normalizado = valor_normalizado.strip()
+    valor_normalizado = PATRON_ESPACIOS_MULTIPLES.sub(" ", valor_normalizado)
+    return valor_normalizado
 
 
-def normalize_field_name(raw_name: Any) -> str:
+def normalizar_nombre_campo(nombre_crudo: Any) -> str:
     """Convierte encabezados en nombres de campo consistentes (snake_case)."""
-    normalized_name = normalize_text(raw_name).lower()
-    normalized_name = normalized_name.replace(" ", "_").replace("-", "_")
-    normalized_name = INVALID_FIELD_NAME_PATTERN.sub("", normalized_name)
-    return normalized_name or "campo_sin_nombre"
+    nombre_normalizado = normalizar_texto(nombre_crudo).lower()
+    nombre_normalizado = nombre_normalizado.replace(" ", "_").replace("-", "_")
+    nombre_normalizado = PATRON_NOMBRE_CAMPO_INVALIDO.sub("", nombre_normalizado)
+    return nombre_normalizado or "campo_sin_nombre"
 
 
-def normalize_empty_value(value: str) -> str | None:
+def normalizar_valor_vacio(valor: str) -> str | None:
     """Convierte representaciones comunes de valor vacio en None."""
-    if value.strip().lower() in EMPTY_VALUES:
+    if valor.strip().lower() in VALORES_VACIOS:
         return None
-    return value
+    return valor
 
 
-def normalize_number(raw_value: Any, field_name: str = "numero") -> float | None:
+def normalizar_numero(valor_crudo: Any, nombre_campo: str = "numero") -> float | None:
     """Normaliza un valor numerico y valida su conversion."""
-    normalized_value = normalize_text(raw_value)
-    if normalized_value == "":
+    valor_normalizado = normalizar_texto(valor_crudo)
+    if valor_normalizado == "":
         return None
-    cleaned_value = normalized_value.replace("$", "").replace("\u20ac", "")
-    cleaned_value = cleaned_value.replace(",", ".")
+    valor_limpio = valor_normalizado.replace("$", "").replace("\u20ac", "")
+    valor_limpio = valor_limpio.replace(",", ".")
     try:
-        numeric_value = float(cleaned_value)
+        valor_numerico = float(valor_limpio)
     except ValueError as error:
-        raise IngestionError(
-            f"El campo '{field_name}' no contiene un numero valido."
+        raise ErrorIngesta(
+            f"El campo '{nombre_campo}' no contiene un numero valido."
         ) from error
-    return numeric_value
+    return valor_numerico
 
 
-def normalize_date(raw_value: Any, field_name: str = "fecha") -> str | None:
+def normalizar_fecha(valor_crudo: Any, nombre_campo: str = "fecha") -> str | None:
     """Normaliza fechas al formato estandar YYYY-MM-DD."""
-    normalized_value = normalize_text(raw_value)
-    if normalized_value == "":
+    valor_normalizado = normalizar_texto(valor_crudo)
+    if valor_normalizado == "":
         return None
-    for date_format in ACCEPTED_DATE_FORMATS:
+    for formato_fecha in FORMATOS_FECHA_ACEPTADOS:
         try:
-            parsed_date = datetime.strptime(normalized_value, date_format)
-            return parsed_date.strftime(STANDARD_DATE_FORMAT)
+            fecha_parseada = datetime.strptime(valor_normalizado, formato_fecha)
+            return fecha_parseada.strftime(FORMATO_FECHA_ESTANDAR)
         except ValueError:
             continue
-    raise IngestionError(
-        f"El campo '{field_name}' no tiene una fecha valida: "
-        f"formatos aceptados: {', '.join(ACCEPTED_DATE_FORMATS)}."
+    raise ErrorIngesta(
+        f"El campo '{nombre_campo}' no tiene una fecha valida: "
+        f"formatos aceptados: {', '.join(FORMATOS_FECHA_ACEPTADOS)}."
     )
 
 
-def normalize_email(raw_value: Any, field_name: str = "correo") -> str | None:
+def normalizar_correo(valor_crudo: Any, nombre_campo: str = "correo") -> str | None:
     """Normaliza y valida de forma basica un correo electronico."""
-    normalized_value = normalize_text(raw_value)
-    if normalized_value == "":
+    valor_normalizado = normalizar_texto(valor_crudo)
+    if valor_normalizado == "":
         return None
-    if normalized_value.count("@") != 1:
-        raise IngestionError(
-            f"El campo '{field_name}' debe contener exactamente un '@'."
+    if valor_normalizado.count("@") != 1:
+        raise ErrorIngesta(
+            f"El campo '{nombre_campo}' debe contener exactamente un '@'."
         )
-    local_part, domain_part = normalized_value.split("@", 1)
-    if not local_part or "." not in domain_part:
-        raise IngestionError(
-            f"El campo '{field_name}' no tiene un formato de correo valido."
+    parte_local, parte_dominio = valor_normalizado.split("@", 1)
+    if not parte_local or "." not in parte_dominio:
+        raise ErrorIngesta(
+            f"El campo '{nombre_campo}' no tiene un formato de correo valido."
         )
-    if len(normalized_value) > 254:
-        raise IngestionError(
-            f"El campo '{field_name}' excede la longitud maxima permitida."
+    if len(valor_normalizado) > 254:
+        raise ErrorIngesta(
+            f"El campo '{nombre_campo}' excede la longitud maxima permitida."
         )
-    return f"{local_part}@{domain_part.lower()}"
+    return f"{parte_local}@{parte_dominio.lower()}"
 
 
-def normalize_record(
-    raw_record: dict[str, Any],
-    logger: logging.Logger,
-    source_file: Path,
-    line_number: int,
-    error_log: list[str] | None = None,
+def normalizar_registro(
+    registro_crudo: dict[str, Any],
+    registrador: logging.Logger,
+    archivo_origen: Path,
+    numero_linea: int,
+    registro_errores: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Normaliza un registro completo y aplica validaciones por campo.
 
     Si el registro no pasa las validaciones, se registra como evento de
     seguridad (INPUT_VALIDATION_FAIL), opcionalmente se agregan los errores
-    a `error_log` (para el reporte .txt) y se devuelve None para descartarlo.
+    a `registro_errores` (para el reporte .txt) y se devuelve None para descartarlo.
     """
-    normalized_record: dict[str, Any] = {}
-    validation_errors: list[str] = []
+    registro_normalizado: dict[str, Any] = {}
+    errores_validacion: list[str] = []
 
-    for raw_key, raw_value in raw_record.items():
-        field_name = normalize_field_name(raw_key)
-        normalized_value: str | None = normalize_text(raw_value)
-        normalized_value = normalize_empty_value(normalized_value)
-        normalized_record[field_name] = normalized_value
+    for clave_cruda, valor_crudo in registro_crudo.items():
+        nombre_campo = normalizar_nombre_campo(clave_cruda)
+        valor_normalizado: str | None = normalizar_texto(valor_crudo)
+        valor_normalizado = normalizar_valor_vacio(valor_normalizado)
+        registro_normalizado[nombre_campo] = valor_normalizado
 
-    for required_field in REQUIRED_FIELDS:
-        if normalized_record.get(required_field) in (None, ""):
-            validation_errors.append(
-                f"Campo obligatorio ausente o vacio: '{required_field}'."
+    for campo_obligatorio in CAMPOS_OBLIGATORIOS:
+        if registro_normalizado.get(campo_obligatorio) in (None, ""):
+            errores_validacion.append(
+                f"Campo obligatorio ausente o vacio: '{campo_obligatorio}'."
             )
 
-    if "fecha" in normalized_record:
+    if "fecha" in registro_normalizado:
         try:
-            normalized_record["fecha"] = normalize_date(
-                normalized_record["fecha"], field_name="fecha"
+            registro_normalizado["fecha"] = normalizar_fecha(
+                registro_normalizado["fecha"], nombre_campo="fecha"
             )
-        except IngestionError as error:
-            validation_errors.append(str(error))
+        except ErrorIngesta as error:
+            errores_validacion.append(str(error))
 
-    if "monto" in normalized_record:
+    if "monto" in registro_normalizado:
         try:
-            normalized_record["monto"] = normalize_number(
-                normalized_record["monto"], field_name="monto"
+            registro_normalizado["monto"] = normalizar_numero(
+                registro_normalizado["monto"], nombre_campo="monto"
             )
-        except IngestionError as error:
-            validation_errors.append(str(error))
+        except ErrorIngesta as error:
+            errores_validacion.append(str(error))
 
-    if "correo" in normalized_record:
+    if "correo" in registro_normalizado:
         try:
-            normalized_record["correo"] = normalize_email(
-                normalized_record["correo"], field_name="correo"
+            registro_normalizado["correo"] = normalizar_correo(
+                registro_normalizado["correo"], nombre_campo="correo"
             )
-        except IngestionError as error:
-            validation_errors.append(str(error))
+        except ErrorIngesta as error:
+            errores_validacion.append(str(error))
 
-    if validation_errors:
-        mensaje = f"Linea {line_number}: {' '.join(validation_errors)}"
-        log_security_event(
-            logger=logger,
-            event="INPUT_VALIDATION_FAIL",
-            description="Registro rechazado por validacion de entrada.",
-            level=logging.WARNING,
-            archivo=source_file.name,
-            linea=line_number,
-            errores="; ".join(validation_errors),
+    if errores_validacion:
+        mensaje = f"Linea {numero_linea}: {' '.join(errores_validacion)}"
+        registrar_evento_seguridad(
+            registrador=registrador,
+            evento="INPUT_VALIDATION_FAIL",
+            descripcion="Registro rechazado por validacion de entrada.",
+            nivel=logging.WARNING,
+            archivo=archivo_origen.name,
+            linea=numero_linea,
+            errores="; ".join(errores_validacion),
         )
-        if error_log is not None:
-            error_log.append(mensaje)
+        if registro_errores is not None:
+            registro_errores.append(mensaje)
         return None
 
-    return normalized_record
+    return registro_normalizado
 
 
 # ---------------------------------------------------------------------------
 # Validacion de archivos
 # ---------------------------------------------------------------------------
 
-def validate_input_path(
-    input_path: Path,
-    logger: logging.Logger,
-    allowed_root: Path | None = None,
+def validar_ruta_entrada(
+    ruta_entrada: Path,
+    registrador: logging.Logger,
+    raiz_permitida: Path | None = None,
 ) -> Path:
     """Valida existencia, tipo, extension, ubicacion y tamano del archivo.
 
-    `allowed_root`, si se indica, obliga a que el archivo este contenido
+    `raiz_permitida`, si se indica, obliga a que el archivo este contenido
     dentro de ese directorio (util en el modo por lotes). En el modo
     interactivo (`ejecutar`) no se restringe a un directorio fijo porque
     el usuario puede indicar cualquier ruta valida, pero se registran como
     evento de seguridad los intentos de path traversal (p. ej. "..").
     """
-    raw_path_text = str(input_path)
+    texto_ruta_cruda = str(ruta_entrada)
 
-    if "\x00" in raw_path_text:
-        raise SecurityEventError("La ruta contiene un byte nulo no permitido.")
+    if "\x00" in texto_ruta_cruda:
+        raise ErrorEventoSeguridad("La ruta contiene un byte nulo no permitido.")
 
-    if len(raw_path_text) > MAX_PATH_LENGTH:
-        raise SecurityEventError("La ruta excede la longitud maxima permitida.")
+    if len(texto_ruta_cruda) > LONGITUD_MAXIMA_RUTA:
+        raise ErrorEventoSeguridad("La ruta excede la longitud maxima permitida.")
 
-    if PATH_TRAVERSAL_PATTERN.search(raw_path_text):
-        log_security_event(
-            logger=logger,
-            event="PATH_TRAVERSAL_ATTEMPT",
-            description="Se detecto un patron de salida de directorio ('..') en la ruta.",
-            level=logging.WARNING,
-            ruta=raw_path_text,
+    if PATRON_SALTO_DIRECTORIO.search(texto_ruta_cruda):
+        registrar_evento_seguridad(
+            registrador=registrador,
+            evento="PATH_TRAVERSAL_ATTEMPT",
+            descripcion="Se detecto un patron de salida de directorio ('..') en la ruta.",
+            nivel=logging.WARNING,
+            ruta=texto_ruta_cruda,
         )
 
-    resolved_path = input_path.expanduser().resolve()
+    ruta_resuelta = ruta_entrada.expanduser().resolve()
 
-    if allowed_root is not None:
-        allowed_root_resolved = allowed_root.resolve()
-        is_contained = False
+    if raiz_permitida is not None:
+        raiz_permitida_resuelta = raiz_permitida.resolve()
+        esta_contenida = False
         try:
-            is_contained = resolved_path.is_relative_to(allowed_root_resolved)
+            esta_contenida = ruta_resuelta.is_relative_to(raiz_permitida_resuelta)
         except AttributeError:  # Python < 3.9
-            is_contained = str(resolved_path).startswith(str(allowed_root_resolved))
-        if not is_contained:
-            raise SecurityEventError(
-                f"La ruta '{input_path}' esta fuera del directorio autorizado."
+            esta_contenida = str(ruta_resuelta).startswith(str(raiz_permitida_resuelta))
+        if not esta_contenida:
+            raise ErrorEventoSeguridad(
+                f"La ruta '{ruta_entrada}' esta fuera del directorio autorizado."
             )
 
-    if not resolved_path.exists():
-        raise IngestionError(f"El archivo no existe: '{input_path}'.")
+    if not ruta_resuelta.exists():
+        raise ErrorIngesta(f"El archivo no existe: '{ruta_entrada}'.")
 
-    if not resolved_path.is_file():
-        raise IngestionError(f"La ruta no corresponde a un archivo: '{input_path}'.")
+    if not ruta_resuelta.is_file():
+        raise ErrorIngesta(f"La ruta no corresponde a un archivo: '{ruta_entrada}'.")
 
-    file_extension = resolved_path.suffix.lower()
-    if file_extension not in SUPPORTED_EXTENSIONS:
-        raise SecurityEventError(f"Extension no permitida: '{file_extension}'.")
+    extension_archivo = ruta_resuelta.suffix.lower()
+    if extension_archivo not in EXTENSIONES_SOPORTADAS:
+        raise ErrorEventoSeguridad(f"Extension no permitida: '{extension_archivo}'.")
 
     try:
-        file_size = resolved_path.stat().st_size
+        tamano_archivo = ruta_resuelta.stat().st_size
     except OSError as error:
-        raise IngestionError(
-            f"No fue posible consultar el tamano del archivo '{input_path}'."
+        raise ErrorIngesta(
+            f"No fue posible consultar el tamano del archivo '{ruta_entrada}'."
         ) from error
 
-    if file_size > MAX_FILE_SIZE_BYTES:
-        raise SecurityEventError(
+    if tamano_archivo > TAMANO_MAXIMO_ARCHIVO_BYTES:
+        raise ErrorEventoSeguridad(
             f"El archivo excede el tamano maximo permitido "
-            f"({MAX_FILE_SIZE_BYTES} bytes)."
+            f"({TAMANO_MAXIMO_ARCHIVO_BYTES} bytes)."
         )
 
-    if file_size == 0:
-        raise IngestionError(f"El archivo '{input_path}' esta vacio.")
+    if tamano_archivo == 0:
+        raise ErrorIngesta(f"El archivo '{ruta_entrada}' esta vacio.")
 
-    return resolved_path
+    return ruta_resuelta
 
 
 # ---------------------------------------------------------------------------
 # Lectura de archivos
 # ---------------------------------------------------------------------------
 
-def read_csv_file(file_path: Path) -> Iterator[dict[str, Any]]:
+def leer_archivo_csv(ruta_archivo: Path) -> Iterator[dict[str, Any]]:
     """Lee un archivo CSV y entrega registros con encabezados normalizados."""
     try:
-        with file_path.open(mode="r", encoding=INPUT_ENCODING, newline="") as file_handler:
-            reader = csv.DictReader(file_handler, delimiter=CSV_DELIMITER)
-            if not reader.fieldnames:
-                raise IngestionError(
-                    f"El archivo CSV no contiene encabezados: '{file_path.name}'."
+        with ruta_archivo.open(mode="r", encoding=CODIFICACION_ENTRADA, newline="") as manejador_archivo:
+            lector = csv.DictReader(manejador_archivo, delimiter=DELIMITADOR_CSV)
+            if not lector.fieldnames:
+                raise ErrorIngesta(
+                    f"El archivo CSV no contiene encabezados: '{ruta_archivo.name}'."
                 )
 
-            normalized_headers = [normalize_field_name(header) for header in reader.fieldnames]
+            encabezados_normalizados = [normalizar_nombre_campo(header) for header in lector.fieldnames]
 
-            for row_number, raw_row in enumerate(reader, start=2):
+            for numero_fila, fila_cruda in enumerate(lector, start=2):
                 try:
-                    normalized_row = {
-                        normalized_headers[index]: value
-                        for index, value in enumerate(raw_row.values())
-                        if index < len(normalized_headers)
+                    fila_normalizada = {
+                        encabezados_normalizados[indice]: valor
+                        for indice, valor in enumerate(fila_cruda.values())
+                        if indice < len(encabezados_normalizados)
                     }
                 except (TypeError, ValueError, IndexError) as error:
-                    raise IngestionError(
-                        f"Fila {row_number} con estructura invalida."
+                    raise ErrorIngesta(
+                        f"Fila {numero_fila} con estructura invalida."
                     ) from error
-                yield normalized_row
+                yield fila_normalizada
     except UnicodeDecodeError as error:
-        raise IngestionError(
-            f"Error de codificacion al leer '{file_path.name}': {error}"
+        raise ErrorIngesta(
+            f"Error de codificacion al leer '{ruta_archivo.name}': {error}"
         ) from error
     except csv.Error as error:
-        raise IngestionError(
-            f"Error al analizar el archivo CSV '{file_path.name}': {error}"
+        raise ErrorIngesta(
+            f"Error al analizar el archivo CSV '{ruta_archivo.name}': {error}"
         ) from error
 
 
-def read_txt_file(file_path: Path) -> Iterator[dict[str, Any]]:
+def leer_archivo_txt(ruta_archivo: Path) -> Iterator[dict[str, Any]]:
     """Lee un archivo TXT delimitado por '|' y entrega registros crudos."""
     try:
-        with file_path.open(mode="r", encoding=INPUT_ENCODING) as file_handler:
-            for line_number, raw_line in enumerate(file_handler, start=1):
-                if len(raw_line) > MAX_LINE_LENGTH:
-                    raise SecurityEventError(
-                        f"Linea {line_number} excede la longitud maxima permitida."
+        with ruta_archivo.open(mode="r", encoding=CODIFICACION_ENTRADA) as manejador_archivo:
+            for numero_linea, linea_cruda in enumerate(manejador_archivo, start=1):
+                if len(linea_cruda) > LONGITUD_MAXIMA_LINEA:
+                    raise ErrorEventoSeguridad(
+                        f"Linea {numero_linea} excede la longitud maxima permitida."
                     )
-                normalized_line = normalize_text(raw_line)
-                if not normalized_line:
+                linea_normalizada = normalizar_texto(linea_cruda)
+                if not linea_normalizada:
                     continue
-                fields = normalized_line.split(TXT_FIELD_DELIMITER)
-                yield {f"campo_{index}": value for index, value in enumerate(fields, start=1)}
+                campos = linea_normalizada.split(DELIMITADOR_CAMPO_TXT)
+                yield {f"campo_{indice}": valor for indice, valor in enumerate(campos, start=1)}
     except UnicodeDecodeError as error:
-        raise IngestionError(
-            f"Error de codificacion al leer '{file_path.name}': {error}"
+        raise ErrorIngesta(
+            f"Error de codificacion al leer '{ruta_archivo.name}': {error}"
         ) from error
     except OSError as error:
-        raise IngestionError(
-            f"Error de acceso al archivo '{file_path.name}': {error}"
+        raise ErrorIngesta(
+            f"Error de acceso al archivo '{ruta_archivo.name}': {error}"
         ) from error
 
 
-def read_file(file_path: Path) -> Iterator[dict[str, Any]]:
+def leer_archivo(ruta_archivo: Path) -> Iterator[dict[str, Any]]:
     """Selecciona el lector adecuado segun la extension del archivo."""
-    file_extension = file_path.suffix.lower()
-    if file_extension == ".csv":
-        return read_csv_file(file_path)
-    if file_extension == ".txt":
-        return read_txt_file(file_path)
-    raise SecurityEventError(f"Formato no soportado: '{file_extension}'.")
+    extension_archivo = ruta_archivo.suffix.lower()
+    if extension_archivo == ".csv":
+        return leer_archivo_csv(ruta_archivo)
+    if extension_archivo == ".txt":
+        return leer_archivo_txt(ruta_archivo)
+    raise ErrorEventoSeguridad(f"Formato no soportado: '{extension_archivo}'.")
 
 
 # ---------------------------------------------------------------------------
 # Escritura de salida
 # ---------------------------------------------------------------------------
 
-def write_normalized_csv(records: Iterable[dict[str, Any]], output_path: Path) -> int:
+def escribir_csv_normalizado(registros: Iterable[dict[str, Any]], ruta_salida: Path) -> int:
     """Escribe registros normalizados en un archivo CSV. Devuelve el total escrito."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    written_count = 0
-    fieldnames: list[str] | None = None
-    writer: csv.DictWriter | None = None
+    ruta_salida.parent.mkdir(parents=True, exist_ok=True)
+    conteo_escritos = 0
+    nombres_campos: list[str] | None = None
+    escritor: csv.DictWriter | None = None
 
     try:
-        with output_path.open(mode="w", encoding=OUTPUT_ENCODING, newline="") as file_handler:
-            for record in records:
-                if fieldnames is None:
-                    fieldnames = list(record.keys())
-                    writer = csv.DictWriter(
-                        file_handler,
-                        fieldnames=fieldnames,
-                        delimiter=CSV_DELIMITER,
+        with ruta_salida.open(mode="w", encoding=CODIFICACION_SALIDA, newline="") as manejador_archivo:
+            for registro in registros:
+                if nombres_campos is None:
+                    nombres_campos = list(registro.keys())
+                    escritor = csv.DictWriter(
+                        manejador_archivo,
+                        fieldnames=nombres_campos,
+                        delimiter=DELIMITADOR_CSV,
                         extrasaction="ignore",
                     )
-                    writer.writeheader()
-                writer.writerow(record)
-                written_count += 1
+                    escritor.writeheader()
+                escritor.writerow(registro)
+                conteo_escritos += 1
     except OSError as error:
-        raise IngestionError(
-            f"Error al escribir el archivo de salida '{output_path.name}': {error}"
+        raise ErrorIngesta(
+            f"Error al escribir el archivo de salida '{ruta_salida.name}': {error}"
         ) from error
     except csv.Error as error:
-        raise IngestionError(
-            f"Error al escribir una fila en '{output_path.name}': {error}"
+        raise ErrorIngesta(
+            f"Error al escribir una fila en '{ruta_salida.name}': {error}"
         ) from error
 
-    return written_count
+    return conteo_escritos
 
 
-def write_error_report(
-    source_file: Path,
-    output_path: Path,
+def escribir_reporte_errores(
+    archivo_origen: Path,
+    ruta_salida: Path,
     total_leidos: int,
     total_validos: int,
     errores: list[str],
 ) -> None:
     """Genera el reporte .txt con los errores encontrados durante el analisis."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S%z")
+    ruta_salida.parent.mkdir(parents=True, exist_ok=True)
+    marca_tiempo = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S%z")
 
     lineas = [
         "REPORTE DE INGESTA DE DATOS",
         "=" * 40,
-        f"Archivo analizado : {source_file.name}",
-        f"Fecha de analisis : {timestamp}",
+        f"Archivo analizado : {archivo_origen.name}",
+        f"Fecha de analisis : {marca_tiempo}",
         f"Registros leidos  : {total_leidos}",
         f"Registros validos : {total_validos}",
         f"Registros con error: {len(errores)}",
@@ -530,10 +530,10 @@ def write_error_report(
         lineas.append("No se encontraron errores durante el analisis.")
 
     try:
-        output_path.write_text("\n".join(lineas) + "\n", encoding=OUTPUT_ENCODING)
+        ruta_salida.write_text("\n".join(lineas) + "\n", encoding=CODIFICACION_SALIDA)
     except OSError as error:
-        raise IngestionError(
-            f"Error al escribir el reporte '{output_path.name}': {error}"
+        raise ErrorIngesta(
+            f"Error al escribir el reporte '{ruta_salida.name}': {error}"
         ) from error
 
 
@@ -541,103 +541,103 @@ def write_error_report(
 # Procesamiento de un archivo
 # ---------------------------------------------------------------------------
 
-def process_file(
-    logger: logging.Logger,
-    file_path: Path,
-    output_dir: Path,
-    allowed_root: Path | None = None,
+def procesar_archivo(
+    registrador: logging.Logger,
+    ruta_archivo: Path,
+    directorio_salida: Path,
+    raiz_permitida: Path | None = None,
 ) -> dict[str, Any]:
     """Valida, lee, normaliza y exporta un archivo individual.
 
     Devuelve un diccionario con el resultado del procesamiento, incluyendo
     las rutas del CSV normalizado y del reporte .txt de errores.
     """
-    result: dict[str, Any] = {
-        "archivo": file_path.name,
+    resultado: dict[str, Any] = {
+        "archivo": ruta_archivo.name,
         "estado": "error",
         "registros_leidos": 0,
         "registros_validos": 0,
     }
 
     try:
-        validated_path = validate_input_path(file_path, logger=logger, allowed_root=allowed_root)
-        output_csv_path = output_dir / f"{validated_path.stem}_normalized.csv"
-        report_path = output_dir / f"{validated_path.stem}_report.txt"
+        ruta_validada = validar_ruta_entrada(ruta_archivo, registrador=registrador, raiz_permitida=raiz_permitida)
+        ruta_csv_salida = directorio_salida / f"{ruta_validada.stem}_normalized.csv"
+        ruta_reporte = directorio_salida / f"{ruta_validada.stem}_report.txt"
 
-        raw_records = read_file(validated_path)
-        valid_records: list[dict[str, Any]] = []
+        registros_crudos = leer_archivo(ruta_validada)
+        registros_validos_lista: list[dict[str, Any]] = []
         errores: list[str] = []
         total_leidos = 0
 
-        for line_number, raw_record in enumerate(raw_records, start=1):
+        for numero_linea, registro_crudo in enumerate(registros_crudos, start=1):
             total_leidos += 1
-            normalized_record = normalize_record(
-                raw_record=raw_record,
-                logger=logger,
-                source_file=validated_path,
-                line_number=line_number,
-                error_log=errores,
+            registro_normalizado = normalizar_registro(
+                registro_crudo=registro_crudo,
+                registrador=registrador,
+                archivo_origen=ruta_validada,
+                numero_linea=numero_linea,
+                registro_errores=errores,
             )
-            if normalized_record is not None:
-                valid_records.append(normalized_record)
+            if registro_normalizado is not None:
+                registros_validos_lista.append(registro_normalizado)
 
-        written_count = write_normalized_csv(valid_records, output_csv_path)
-        write_error_report(
-            source_file=validated_path,
-            output_path=report_path,
+        conteo_escritos = escribir_csv_normalizado(registros_validos_lista, ruta_csv_salida)
+        escribir_reporte_errores(
+            archivo_origen=ruta_validada,
+            ruta_salida=ruta_reporte,
             total_leidos=total_leidos,
-            total_validos=written_count,
+            total_validos=conteo_escritos,
             errores=errores,
         )
 
-        result["estado"] = "success"
-        result["registros_leidos"] = total_leidos
-        result["registros_validos"] = written_count
-        result["salida_csv"] = str(output_csv_path)
-        result["reporte_errores"] = str(report_path)
+        resultado["estado"] = "success"
+        resultado["registros_leidos"] = total_leidos
+        resultado["registros_validos"] = conteo_escritos
+        resultado["salida_csv"] = str(ruta_csv_salida)
+        resultado["reporte_errores"] = str(ruta_reporte)
 
-        log_security_event(
-            logger=logger,
-            event="INGESTION_SUCCESS",
-            description="Archivo procesado correctamente.",
-            level=logging.INFO,
-            archivo=validated_path.name,
+        registrar_evento_seguridad(
+            registrador=registrador,
+            evento="INGESTION_SUCCESS",
+            descripcion="Archivo procesado correctamente.",
+            nivel=logging.INFO,
+            archivo=ruta_validada.name,
             registros_leidos=total_leidos,
-            registros_validos=written_count,
-            salida=output_csv_path.name,
+            registros_validos=conteo_escritos,
+            salida=ruta_csv_salida.name,
         )
 
-    except SecurityEventError as error:
-        result["error"] = str(error)
-        log_security_event(
-            logger=logger,
-            event="SECURITY_EVENT",
-            description=str(error),
-            level=logging.ERROR,
-            archivo=file_path.name,
+    except ErrorEventoSeguridad as error:
+        resultado["error"] = str(error)
+        registrar_evento_seguridad(
+            registrador=registrador,
+            evento="SECURITY_EVENT",
+            descripcion=str(error),
+            nivel=logging.ERROR,
+            archivo=ruta_archivo.name,
         )
 
-    except IngestionError as error:
-        result["error"] = str(error)
-        log_security_event(
-            logger=logger,
-            event="INGESTION_FAILURE",
-            description=str(error),
-            level=logging.ERROR,
-            archivo=file_path.name,
+    except ErrorIngesta as error:
+        resultado["error"] = str(error)
+        registrar_evento_seguridad(
+            registrador=registrador,
+            evento="INGESTION_FAILURE",
+            descripcion=str(error),
+            nivel=logging.ERROR,
+            archivo=ruta_archivo.name,
         )
 
     except Exception as error:  # ultima barrera: nunca dejar un error sin registrar
-        result["error"] = f"Error inesperado: {error}"
-        log_security_event(
-            logger=logger,
-            event="UNEXPECTED_ERROR",
-            description=result["error"],
-            level=logging.CRITICAL,
-            archivo=file_path.name,
+        resultado["error"] = f"Error inesperado: {error}"
+        registrar_evento_seguridad(
+            registrador=registrador,
+            evento="UNEXPECTED_ERROR",
+            descripcion=resultado["error"],
+            nivel=logging.CRITICAL,
+            archivo=ruta_archivo.name,
         )
 
-    return result
+    return resultado
 
 
 # ---------------------------------------------------------------------------
@@ -646,17 +646,17 @@ def process_file(
 
 def ejecutar(
     ruta: str,
-    output_dir: Path = DEFAULT_OUTPUT_DIR,
-    log_dir: Path = DEFAULT_LOG_DIR,
+    directorio_salida: Path = DIRECTORIO_SALIDA_PREDETERMINADO,
+    directorio_log: Path = DIRECTORIO_LOG_PREDETERMINADO,
 ) -> dict[str, Any]:
     """Punto de entrada que main.py invoca para la opcion 'ingestion'.
 
     Lee el archivo .txt o .csv indicado en `ruta`, normaliza sus datos y
     controla los errores de entrada registrando eventos de seguridad.
-    Genera un CSV normalizado y un reporte .txt de errores en `output_dir`,
+    Genera un CSV normalizado y un reporte .txt de errores en `directorio_salida`,
     e imprime un resumen por consola para el usuario del menu.
 
-    Devuelve el diccionario de resultado de `process_file`, por si en el
+    Devuelve el diccionario de resultado de `procesar_archivo`, por si en el
     futuro main.py quisiera usar el valor de retorno. Actualmente main.py
     llama `funcion(ruta)` sin capturar el resultado y sin ningun try/except
     alrededor de la llamada, por lo que esta funcion NUNCA debe propagar
@@ -666,7 +666,7 @@ def ejecutar(
     resultado: dict[str, Any] = {"archivo": ruta, "estado": "error"}
 
     try:
-        logger = configure_logging(log_dir)
+        registrador = configurar_logging(directorio_log)
     except Exception as error:
         print("No fue posible inicializar el log de seguridad.")
         print(f"  Error: {error}")
@@ -674,18 +674,18 @@ def ejecutar(
         return resultado
 
     try:
-        log_security_event(
-            logger=logger,
-            event="INGESTION_START",
-            description="Inicio del proceso de ingesta.",
-            level=logging.INFO,
+        registrar_evento_seguridad(
+            registrador=registrador,
+            evento="INGESTION_START",
+            descripcion="Inicio del proceso de ingesta.",
+            nivel=logging.INFO,
             archivo=ruta,
         )
 
-        resultado = process_file(
-            logger=logger,
-            file_path=Path(ruta),
-            output_dir=output_dir,
+        resultado = procesar_archivo(
+            registrador=registrador,
+            ruta_archivo=Path(ruta),
+            directorio_salida=directorio_salida,
         )
 
         if resultado["estado"] == "success":
@@ -700,11 +700,11 @@ def ejecutar(
             print(f"  Archivo  : {resultado['archivo']}")
             print(f"  Error    : {resultado.get('error', 'Error desconocido')}")
 
-        log_security_event(
-            logger=logger,
-            event="INGESTION_END",
-            description="Fin del proceso de ingesta.",
-            level=logging.INFO,
+        registrar_evento_seguridad(
+            registrador=registrador,
+            evento="INGESTION_END",
+            descripcion="Fin del proceso de ingesta.",
+            nivel=logging.INFO,
             archivo=ruta,
             estado=resultado["estado"],
         )
@@ -714,11 +714,11 @@ def ejecutar(
         # main.py la invoca sin try/except y eso detendria todo el menu.
         resultado["estado"] = "error"
         resultado["error"] = f"Error inesperado no controlado: {error}"
-        log_security_event(
-            logger=logger,
-            event="UNEXPECTED_ERROR",
-            description=resultado["error"],
-            level=logging.CRITICAL,
+        registrar_evento_seguridad(
+            registrador=registrador,
+            evento="UNEXPECTED_ERROR",
+            descripcion=resultado["error"],
+            nivel=logging.CRITICAL,
             archivo=ruta,
         )
         print("Ocurrio un error inesperado durante la ingesta.")
@@ -732,69 +732,69 @@ def ejecutar(
 # Modo por lotes (opcional, para pruebas fuera del menu de main.py)
 # ---------------------------------------------------------------------------
 
-def discover_input_files(input_dir: Path) -> list[Path]:
+def descubrir_archivos_entrada(directorio_entrada: Path) -> list[Path]:
     """Encuentra archivos .txt y .csv en el directorio de entrada."""
-    if not input_dir.exists():
-        raise IngestionError(f"El directorio de entrada no existe: '{input_dir}'.")
-    if not input_dir.is_dir():
-        raise IngestionError(f"La ruta de entrada no es un directorio: '{input_dir}'.")
+    if not directorio_entrada.exists():
+        raise ErrorIngesta(f"El directorio de entrada no existe: '{directorio_entrada}'.")
+    if not directorio_entrada.is_dir():
+        raise ErrorIngesta(f"La ruta de entrada no es un directorio: '{directorio_entrada}'.")
 
-    input_files = [
-        candidate
-        for candidate in input_dir.iterdir()
-        if candidate.is_file() and candidate.suffix.lower() in SUPPORTED_EXTENSIONS
+    archivos_entrada = [
+        candidato
+        for candidato in directorio_entrada.iterdir()
+        if candidato.is_file() and candidato.suffix.lower() in EXTENSIONES_SOPORTADAS
     ]
-    return sorted(input_files)
+    return sorted(archivos_entrada)
 
 
-def run_batch(input_dir: Path, output_dir: Path, log_dir: Path, fail_fast: bool) -> int:
+def ejecutar_lote(directorio_entrada: Path, directorio_salida: Path, directorio_log: Path, fallo_rapido: bool) -> int:
     """Procesa todos los .txt/.csv de un directorio (modo utilitario de pruebas)."""
-    logger = configure_logging(log_dir)
+    registrador = configurar_logging(directorio_log)
 
     try:
-        input_files = discover_input_files(input_dir)
-    except IngestionError as error:
-        log_security_event(logger, "INGESTION_FAILURE", str(error), level=logging.ERROR)
+        archivos_entrada = descubrir_archivos_entrada(directorio_entrada)
+    except ErrorIngesta as error:
+        registrar_evento_seguridad(registrador, "INGESTION_FAILURE", str(error), nivel=logging.ERROR)
         print(f"Error: {error}", file=sys.stderr)
         return 1
 
-    if not input_files:
-        log_security_event(
-            logger, "NO_INPUT_FILES",
+    if not archivos_entrada:
+        registrar_evento_seguridad(
+            registrador, "NO_INPUT_FILES",
             "No se encontraron archivos .txt o .csv para procesar.",
-            level=logging.WARNING, input_dir=str(input_dir),
+            nivel=logging.WARNING, directorio_entrada=str(directorio_entrada),
         )
         print("No se encontraron archivos .txt o .csv para procesar.")
         return 0
 
     procesados = fallidos = total_registros = 0
 
-    for input_file in input_files:
-        resultado = process_file(
-            logger=logger,
-            file_path=input_file,
-            output_dir=output_dir,
-            allowed_root=input_dir,
+    for archivo_entrada in archivos_entrada:
+        resultado = procesar_archivo(
+            registrador=registrador,
+            ruta_archivo=archivo_entrada,
+            directorio_salida=directorio_salida,
+            raiz_permitida=directorio_entrada,
         )
         if resultado["estado"] == "success":
             procesados += 1
             total_registros += resultado["registros_validos"]
         else:
             fallidos += 1
-            print(f"  [ERROR] {input_file.name}: {resultado.get('error')}")
-            if fail_fast:
-                log_security_event(
-                    logger, "FAIL_FAST_ACTIVATED",
+            print(f"  [ERROR] {archivo_entrada.name}: {resultado.get('error')}")
+            if fallo_rapido:
+                registrar_evento_seguridad(
+                    registrador, "FAIL_FAST_ACTIVATED",
                     "Ejecucion detenida por --fail-fast tras un error.",
-                    level=logging.ERROR, archivo=input_file.name,
+                    nivel=logging.ERROR, archivo=archivo_entrada.name,
                 )
                 return 1
 
     print(f"Archivos procesados: {procesados} | fallidos: {fallidos} | registros validos: {total_registros}")
 
-    log_security_event(
-        logger, "INGESTION_SUMMARY", "Resumen final de ingesta por lotes.",
-        level=logging.INFO,
+    registrar_evento_seguridad(
+        registrador, "INGESTION_SUMMARY", "Resumen final de ingesta por lotes.",
+        nivel=logging.INFO,
         archivos_procesados=procesados, archivos_fallidos=fallidos,
         registros_totales=total_registros,
     )
@@ -802,42 +802,42 @@ def run_batch(input_dir: Path, output_dir: Path, log_dir: Path, fail_fast: bool)
     return 0 if fallidos == 0 else 1
 
 
-def parse_arguments() -> argparse.Namespace:
+def analizar_argumentos() -> argparse.Namespace:
     """Define y procesa los argumentos de linea de comandos del modo standalone."""
-    parser = argparse.ArgumentParser(description="Ingesta segura de archivos TXT y CSV.")
-    parser.add_argument(
+    analizador = argparse.ArgumentParser(description="Ingesta segura de archivos TXT y CSV.")
+    analizador.add_argument(
         "ruta",
         nargs="?",
         default=None,
         help="Ruta de un archivo .txt o .csv a procesar (modo equivalente a ejecutar(ruta)).",
     )
-    parser.add_argument("--batch", action="store_true", help="Procesa todos los archivos de --input-dir.")
-    parser.add_argument("--input-dir", type=Path, default=DEFAULT_INPUT_DIR, help="Directorio de entrada (modo --batch).")
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Directorio de salida.")
-    parser.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR, help="Directorio del log de seguridad.")
-    parser.add_argument("--fail-fast", action="store_true", help="Detiene el lote ante el primer error.")
-    return parser.parse_args()
+    analizador.add_argument("--batch", dest="lote", action="store_true", help="Procesa todos los archivos de --input-dir.")
+    analizador.add_argument("--input-dir", dest="directorio_entrada", type=Path, default=DIRECTORIO_ENTRADA_PREDETERMINADO, help="Directorio de entrada (modo --batch).")
+    analizador.add_argument("--output-dir", dest="directorio_salida", type=Path, default=DIRECTORIO_SALIDA_PREDETERMINADO, help="Directorio de salida.")
+    analizador.add_argument("--log-dir", dest="directorio_log", type=Path, default=DIRECTORIO_LOG_PREDETERMINADO, help="Directorio del log de seguridad.")
+    analizador.add_argument("--fail-fast", dest="fallo_rapido", action="store_true", help="Detiene el lote ante el primer error.")
+    return analizador.parse_args()
 
 
-def main() -> int:
+def principal() -> int:
     """Permite ejecutar este modulo de forma independiente para pruebas."""
-    arguments = parse_arguments()
+    argumentos = analizar_argumentos()
 
-    if arguments.batch:
-        return run_batch(
-            input_dir=arguments.input_dir,
-            output_dir=arguments.output_dir,
-            log_dir=arguments.log_dir,
-            fail_fast=arguments.fail_fast,
+    if argumentos.lote:
+        return ejecutar_lote(
+            directorio_entrada=argumentos.directorio_entrada,
+            directorio_salida=argumentos.directorio_salida,
+            directorio_log=argumentos.directorio_log,
+            fallo_rapido=argumentos.fallo_rapido,
         )
 
-    if not arguments.ruta:
+    if not argumentos.ruta:
         print("Debe indicar la ruta de un archivo .txt o .csv, o usar --batch.", file=sys.stderr)
         return 1
 
-    resultado = ejecutar(arguments.ruta, output_dir=arguments.output_dir, log_dir=arguments.log_dir)
+    resultado = ejecutar(argumentos.ruta, directorio_salida=argumentos.directorio_salida, directorio_log=argumentos.directorio_log)
     return 0 if resultado["estado"] == "success" else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(principal())
