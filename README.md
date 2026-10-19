@@ -157,21 +157,6 @@ Para repetir CP-10 sin cambiar el archivo de prueba original, se puede copiar `i
 - El texto `<script>` del archivo de prueba es solo un ejemplo para probar la sanitizacion, nunca se ejecuta.
 - No hay contrasenas, llaves ni datos personales en el repositorio.
 
-## Limitaciones (Avance 1)
-
-- El formato de entrada es fijo (10 columnas con el encabezado de arriba).
-- El separador del `.csv` es la coma, entonces un campo no puede contener comas.
-- Los hashes de referencia se guardan con la ruta completa del archivo, entonces si el archivo se mueve de carpeta se toma como "primera vez".
-- Las reglas son simples (listas y umbrales fijos al inicio de `network_analyzer.py`). El motor de reglas y la puntuacion de riesgo se agregan en el Avance 2.
-
-## Contribuciones
-
-| Integrante | Aporte |
-|---|---|
-| f4-ice | Estructura inicial del proyecto y `main.py` |
-| Didier | `ingestion.py`, `validation.py` y `network_analyzer.py` |
-| cgpinedah | `integrity.py` |
-
 ## Uso de inteligencia artificial
 
 Se uso un asistente de IA (Claude) como apoyo para revisar errores del codigo, simplificar los modulos y redactar este README. El equipo reviso y probo el resultado.
