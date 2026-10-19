@@ -1,102 +1,146 @@
-"""Pruebas del MVP - Avance 1 (CyberGuard Analyzer).
+# validation.py
+# Sanitiza (limpia) cadenas de texto y valida los campos de cada registro.
 
-Ejecutar desde la raiz del repo:
-    python -m unittest -v tests/test_mvp.py
-"""
-import hashlib
-import importlib
-import os
-import sys
-import tempfile
-import unittest
-from pathlib import Path
+from datetime import datetime
 
-RAIZ = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(RAIZ))
-
-import ingestion  # noqa: E402
+# ----- Configuracion -----
+LARGO_MAXIMO_CAMPO = 200
+CARACTERES_PELIGROSOS = "<>;`'\""
+CAMPOS_OBLIGATORIOS = ["fecha", "ip_origen", "ip_destino", "puerto_origen",
+                       "puerto_destino", "protocolo", "bytes"]
+FORMATO_FECHA = "%Y-%m-%d %H:%M:%S"
+PROTOCOLOS_VALIDOS = ["TCP", "UDP", "HTTP", "HTTPS"]
+METODOS_VALIDOS = ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS",
+                   "PATCH", "TRACE", "CONNECT", "-"]
 
 
-def crear_archivo(directorio, nombre, contenido):
-    ruta = Path(directorio) / nombre
-    ruta.write_text(contenido, encoding="utf-8")
-    return ruta
+def limpiar_texto(texto):
+    """Quita caracteres de control y caracteres peligrosos, y corta textos muy largos"""
+    limpio = ""
+    for letra in texto:
+        # los caracteres con codigo menor a 32 (y el 127) son de control: \n, \t, \x00, etc.
+        if ord(letra) < 32 or ord(letra) == 127:
+            continue
+        if letra in CARACTERES_PELIGROSOS:
+            continue
+        limpio = limpio + letra
+
+    limpio = limpio.strip()
+
+    if len(limpio) > LARGO_MAXIMO_CAMPO:
+        limpio = limpio[:LARGO_MAXIMO_CAMPO]
+
+    return limpio
 
 
-class PruebasIngesta(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
-        self.salida = self.dir / "output"
-        self.logs = self.dir / "logs"
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def ejecutar(self, ruta):
-        return ingestion.ejecutar(str(ruta), directorio_salida=self.salida, directorio_log=self.logs)
-
-    # CP-01 positivo
-    def test_cp01_csv_valido(self):
-        ruta = crear_archivo(self.dir, "eventos.csv",
-                            "id,fecha,usuario\n1,2026-10-16,ana\n2,2026-10-16,luis\n")
-        r = self.ejecutar(ruta)
-        self.assertEqual(r["estado"], "success")
-        self.assertEqual(r["registros_validos"], 2)
-
-    # CP-02 negativo: lineas malformadas
-    def test_cp02_csv_con_registros_invalidos(self):
-        ruta = crear_archivo(self.dir, "mixto.csv",
-                            "id,fecha\n1,2026-10-16\n,2026-10-16\n3,fecha-mala\n")
-        r = self.ejecutar(ruta)
-        self.assertEqual(r["estado"], "success")
-        self.assertLess(r["registros_validos"], r["registros_leidos"])
-
-    # CP-03 excepcion: archivo inexistente
-    def test_cp03_archivo_inexistente(self):
-        r = self.ejecutar(self.dir / "no_existe.csv")
-        self.assertEqual(r["estado"], "error")
-        self.assertIn("no existe", r["error"])
-
-    # CP-04 excepcion: extension no permitida
-    def test_cp04_extension_no_permitida(self):
-        ruta = crear_archivo(self.dir, "malware.exe", "x")
-        r = self.ejecutar(ruta)
-        self.assertEqual(r["estado"], "error")
-        self.assertIn("Extension no permitida", r["error"])
-
-    # CP-05 excepcion: archivo vacio
-    def test_cp05_archivo_vacio(self):
-        ruta = crear_archivo(self.dir, "vacio.txt", "")
-        r = self.ejecutar(ruta)
-        self.assertEqual(r["estado"], "error")
-        self.assertIn("vacio", r["error"])
-
-    # CP-06 seguridad: sanitizacion de caracteres de control
-    def test_cp06_sanitizacion(self):
-        limpio = ingestion.normalizar_texto("ad\x00min\x1b[31m  root")
-        self.assertNotIn("\x00", limpio)
-        self.assertNotIn("\x1b", limpio)
+def es_numero_entero(texto):
+    """Revisa que el texto sea un numero entero positivo"""
+    return texto.isdigit()
 
 
-class PruebasIntegridad(unittest.TestCase):
-    # CP-07 integridad: archivo modificado produce otro SHA-256
-    def test_cp07_hash_cambia_al_modificar(self):
-        integrity = importlib.import_module("integrity")
-        with tempfile.TemporaryDirectory() as tmp:
-            ruta = crear_archivo(tmp, "evidencia.txt", "evento original\n")
-            h1 = integrity.calcular_sha256(ruta)
-            self.assertEqual(h1, hashlib.sha256(b"evento original\n").hexdigest())
-            ruta.write_text("evento alterado\n", encoding="utf-8")
-            self.assertNotEqual(h1, integrity.calcular_sha256(ruta))
-
-    # CP-08 integracion: los modulos del menu cargan y tienen ejecutar(ruta)
-    def test_cp08_modulos_del_menu(self):
-        for nombre in ("ingestion", "validation", "integrity", "network_analyzer"):
-            with self.subTest(modulo=nombre):
-                modulo = importlib.import_module(nombre)
-                self.assertTrue(hasattr(modulo, "ejecutar"), f"{nombre}.py no tiene ejecutar(ruta)")
+def es_ip_valida(ip):
+    """Revisa que la IP tenga 4 numeros entre 0 y 255 separados por puntos"""
+    partes = ip.split(".")
+    if len(partes) != 4:
+        return False
+    for parte in partes:
+        if not parte.isdigit():
+            return False
+        if int(parte) > 255:
+            return False
+    return True
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
+def es_puerto_valido(puerto):
+    """Revisa que el puerto sea un numero entre 0 y 65535"""
+    if not es_numero_entero(puerto):
+        return False
+    return int(puerto) <= 65535
+
+
+def es_fecha_valida(fecha):
+    """Revisa que la fecha tenga el formato AAAA-MM-DD HH:MM:SS"""
+    try:
+        datetime.strptime(fecha, FORMATO_FECHA)
+        return True
+    except ValueError:
+        return False
+
+
+def validar_registro(registro):
+    """Revisa un registro y devuelve una lista con los problemas encontrados"""
+    problemas = []
+
+    # 1. Los campos obligatorios no pueden estar vacios
+    for campo in CAMPOS_OBLIGATORIOS:
+        if registro[campo] == "":
+            problemas.append("falta el campo '" + campo + "'")
+
+    # si faltan campos no tiene sentido seguir revisando
+    if len(problemas) > 0:
+        return problemas
+
+    # 2. Revisar el formato de cada campo
+    if not es_fecha_valida(registro["fecha"]):
+        problemas.append("fecha invalida '" + registro["fecha"] + "'")
+
+    if not es_ip_valida(registro["ip_origen"]):
+        problemas.append("IP de origen invalida '" + registro["ip_origen"] + "'")
+
+    if not es_ip_valida(registro["ip_destino"]):
+        problemas.append("IP de destino invalida '" + registro["ip_destino"] + "'")
+
+    if not es_puerto_valido(registro["puerto_origen"]):
+        problemas.append("puerto de origen invalido '" + registro["puerto_origen"] + "'")
+
+    if not es_puerto_valido(registro["puerto_destino"]):
+        problemas.append("puerto de destino invalido '" + registro["puerto_destino"] + "'")
+
+    if registro["protocolo"].upper() not in PROTOCOLOS_VALIDOS:
+        problemas.append("protocolo desconocido '" + registro["protocolo"] + "'")
+
+    if registro["metodo"].upper() not in METODOS_VALIDOS:
+        problemas.append("metodo HTTP desconocido '" + registro["metodo"] + "'")
+
+    if not es_numero_entero(registro["bytes"]):
+        problemas.append("bytes invalido '" + registro["bytes"] + "'")
+
+    return problemas
+
+
+def validar_registros(registros):
+    """Separa los registros validos de los que tienen errores"""
+    validos = []
+    errores = []
+
+    for registro in registros:
+        problemas = validar_registro(registro)
+
+        if len(problemas) > 0:
+            errores.append("Linea " + str(registro["linea"]) + ": " + ", ".join(problemas))
+            continue
+
+        # el registro esta bien: pasamos los numeros a int y el texto a mayusculas
+        registro["puerto_origen"] = int(registro["puerto_origen"])
+        registro["puerto_destino"] = int(registro["puerto_destino"])
+        registro["bytes"] = int(registro["bytes"])
+        registro["protocolo"] = registro["protocolo"].upper()
+        registro["flags"] = registro["flags"].upper()
+        registro["metodo"] = registro["metodo"].upper()
+        validos.append(registro)
+
+    return validos, errores
+
+
+def crear_reporte(validos, errores):
+    """Devuelve las lineas de texto del reporte de validacion"""
+    lineas = []
+    lineas.append("=== VALIDACION DE REGISTROS ===")
+    lineas.append("Registros revisados: " + str(len(validos) + len(errores)))
+    lineas.append("Registros validos: " + str(len(validos)))
+    lineas.append("Registros con errores: " + str(len(errores)))
+
+    for error in errores:
+        lineas.append("  [!] " + error)
+
+    return lineas

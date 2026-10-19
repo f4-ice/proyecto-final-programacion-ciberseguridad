@@ -1,0 +1,2 @@
+# No se necesitan librerias externas.
+# El programa usa solamente la libreria estandar de Python 3.

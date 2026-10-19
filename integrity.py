@@ -1,177 +1,118 @@
+# integrity.py
+# Calcula el hash SHA-256 de un archivo de evidencia y lo compara con
+# el hash guardado la primera vez, para saber si el archivo fue modificado.
+
 import hashlib
-import json
-import logging
 import os
-from datetime import datetime
-from pathlib import Path
 
-from ingestion import configure_logging, log_security_event
-
+# ----- Configuracion -----
 TAMANO_BLOQUE = 65536
-DIRECTORIO_SALIDA = Path("data/output")
-ARCHIVO_BASE = DIRECTORIO_SALIDA / "hashes_base.json"
-ARCHIVO_REPORTE = DIRECTORIO_SALIDA / "reporte_integridad.txt"
-HEXADECIMALES = set("0123456789abcdef")
+CARPETA_PROYECTO = os.path.dirname(os.path.abspath(__file__))
+ARCHIVO_REFERENCIAS = os.path.join(CARPETA_PROYECTO, "output", "hashes_referencia.txt")
 
 
 def calcular_sha256(ruta):
+    """Lee el archivo por bloques y devuelve su hash SHA-256"""
     sha = hashlib.sha256()
-    with open(ruta, "rb") as archivo:
-        for bloque in iter(lambda: archivo.read(TAMANO_BLOQUE), b""):
-            sha.update(bloque)
+    archivo = open(ruta, "rb")
+    bloque = archivo.read(TAMANO_BLOQUE)
+    while bloque != b"":
+        sha.update(bloque)
+        bloque = archivo.read(TAMANO_BLOQUE)
+    archivo.close()
     return sha.hexdigest()
 
 
-def anotar_reporte(linea):
-    marca = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def cargar_referencias():
+    """Lee los hashes guardados. Cada linea del archivo es: ruta|hash"""
+    referencias = {}
+    if not os.path.exists(ARCHIVO_REFERENCIAS):
+        return referencias
+
     try:
-        DIRECTORIO_SALIDA.mkdir(parents=True, exist_ok=True)
-        with open(ARCHIVO_REPORTE, "a", encoding="utf-8") as archivo:
-            archivo.write(f"[{marca}] {linea}\n")
-    except OSError as error:
-        print(f"[!] No se pudo escribir el reporte: {error}")
+        archivo = open(ARCHIVO_REFERENCIAS, "r", encoding="utf-8")
+        for linea in archivo:
+            partes = linea.strip().split("|")
+            if len(partes) == 2:
+                referencias[partes[0]] = partes[1]
+        archivo.close()
+    except OSError:
+        print("[!] No se pudo leer el archivo de hashes de referencia")
+
+    return referencias
 
 
-def obtener_hash(ruta, logger):
+def guardar_referencias(referencias):
+    """Guarda todos los hashes de referencia en el archivo"""
     try:
-        return calcular_sha256(ruta)
-    except FileNotFoundError:
-        mensaje = f"Archivo no encontrado: {ruta}"
-    except IsADirectoryError:
-        mensaje = f"La ruta es un directorio, no un archivo: {ruta}"
-    except PermissionError:
-        mensaje = f"Sin permisos para leer: {ruta}"
-    except OSError as error:
-        mensaje = f"No se pudo leer {ruta}: {error}"
-    print(f"[!] {mensaje}")
-    anotar_reporte(f"[ERROR] {mensaje}")
-    log_security_event(
-        logger,
-        "INTEGRITY_READ_FAIL",
-        mensaje,
-        level=logging.ERROR,
-        archivo=ruta,
-    )
-    return None
-
-
-def cargar_base():
-    if not ARCHIVO_BASE.is_file():
-        return {}
-    try:
-        with open(ARCHIVO_BASE, "r", encoding="utf-8") as archivo:
-            base = json.load(archivo)
-    except (OSError, json.JSONDecodeError):
-        print("[!] La base de hashes esta danada, se ignora")
-        return {}
-    return base if isinstance(base, dict) else {}
-
-
-def guardar_base(base):
-    try:
-        DIRECTORIO_SALIDA.mkdir(parents=True, exist_ok=True)
-        with open(ARCHIVO_BASE, "w", encoding="utf-8") as archivo:
-            json.dump(base, archivo, indent=2)
-    except OSError as error:
-        print(f"[!] No se pudo guardar la base de hashes: {error}")
+        os.makedirs(os.path.dirname(ARCHIVO_REFERENCIAS), exist_ok=True)
+        archivo = open(ARCHIVO_REFERENCIAS, "w", encoding="utf-8")
+        for ruta in referencias:
+            archivo.write(ruta + "|" + referencias[ruta] + "\n")
+        archivo.close()
+        return True
+    except OSError:
         return False
-    return True
 
 
-def comparar(ruta, esperado, actual, logger):
-    if esperado == actual:
-        print("[+] INTEGRIDAD OK: el archivo no fue modificado")
-        anotar_reporte(f"[OK] {ruta} integro ({actual})")
-        log_security_event(
-            logger,
-            "INTEGRITY_OK",
-            "Integridad verificada.",
-            level=logging.INFO,
-            archivo=ruta,
-            sha256=actual,
-        )
-        return "integro"
-    print("[!] FALLO DE INTEGRIDAD: el archivo fue modificado")
-    print(f"    esperado: {esperado}")
-    print(f"    actual:   {actual}")
-    anotar_reporte(f"[FALLO] {ruta} modificado. Esperado {esperado}, actual {actual}")
-    log_security_event(
-        logger,
-        "INTEGRITY_MISMATCH",
-        "El hash no coincide con la referencia.",
-        level=logging.WARNING,
-        archivo=ruta,
-        esperado=esperado,
-        actual=actual,
-    )
-    return "modificado"
+def demostrar_cambio(ruta):
+    """Muestra que si se cambia un solo byte del archivo, el hash es totalmente diferente.
+    El cambio se hace solo en memoria, el archivo original no se toca."""
+    archivo = open(ruta, "rb")
+    contenido = archivo.read()
+    archivo.close()
+
+    contenido_modificado = contenido + b" "
+    hash_original = hashlib.sha256(contenido).hexdigest()
+    hash_modificado = hashlib.sha256(contenido_modificado).hexdigest()
+
+    lineas = []
+    lineas.append("Demostracion (se agrega 1 espacio al final, solo en memoria):")
+    lineas.append("  Hash original:   " + hash_original)
+    lineas.append("  Hash modificado: " + hash_modificado)
+    if hash_original != hash_modificado:
+        lineas.append("  Resultado: los hashes son diferentes, cualquier cambio se detecta")
+    return lineas
 
 
-def registrar_base(ruta, logger):
-    hash_actual = obtener_hash(ruta, logger)
-    if hash_actual is None:
-        return "error"
-    base = cargar_base()
-    base[os.path.abspath(ruta)] = hash_actual
-    if not guardar_base(base):
-        return "error"
-    print(f"[+] SHA-256 guardado como referencia: {hash_actual}")
-    anotar_reporte(f"[INFO] Hash base de {ruta}: {hash_actual}")
-    log_security_event(
-        logger,
-        "INTEGRITY_BASELINE",
-        "Hash de referencia registrado.",
-        level=logging.INFO,
-        archivo=ruta,
-        sha256=hash_actual,
-    )
-    return "registrado"
+def crear_reporte(ruta):
+    """Calcula el hash del archivo, lo compara con la referencia y devuelve las lineas del reporte"""
+    lineas = []
+    lineas.append("=== INTEGRIDAD SHA-256 ===")
+    lineas.append("Archivo: " + ruta)
 
-
-def verificar_contra_base(ruta, logger):
-    hash_actual = obtener_hash(ruta, logger)
-    if hash_actual is None:
-        return "error"
-    hash_base = cargar_base().get(os.path.abspath(ruta))
-    if hash_base is None:
-        print("[!] No hay hash de referencia para este archivo. Usa la opcion 1 primero")
-        return "sin_referencia"
-    return comparar(ruta, hash_base, hash_actual, logger)
-
-
-def verificar_manual(ruta, logger):
-    esperado = input("[+] pega el hash SHA-256 esperado: ").strip().lower()
-    if len(esperado) != 64 or not set(esperado) <= HEXADECIMALES:
-        print("[!] El hash debe tener 64 caracteres hexadecimales")
-        return "hash_invalido"
-    hash_actual = obtener_hash(ruta, logger)
-    if hash_actual is None:
-        return "error"
-    return comparar(ruta, esperado, hash_actual, logger)
-
-
-def ejecutar(ruta):
-    resultado = {"archivo": ruta, "estado": "error"}
     try:
-        logger = configure_logging()
-        acciones = {
-            "1": registrar_base,
-            "2": verificar_contra_base,
-            "3": verificar_manual,
-        }
-        print("\n[+] modulo de integridad")
-        print("[1] Calcular y guardar hash de referencia")
-        print("[2] Verificar archivo contra el hash guardado")
-        print("[3] Verificar contra un hash ingresado a mano")
-        opcion = input("[+] elige una opcion: ").strip()
-        accion = acciones.get(opcion)
-        if accion is None:
-            print("[!] opcion no valida")
-            return resultado
-        resultado["estado"] = accion(ruta, logger)
-    except (EOFError, KeyboardInterrupt):
-        print("\n[!] operacion cancelada")
-    except Exception as error:
-        print(f"[!] error inesperado en integrity: {error}")
-        resultado["error"] = str(error)
-    return resultado
+        hash_actual = calcular_sha256(ruta)
+    except FileNotFoundError:
+        lineas.append("  [!] El archivo no existe: " + ruta)
+        return lineas
+    except IsADirectoryError:
+        lineas.append("  [!] La ruta es una carpeta, no un archivo: " + ruta)
+        return lineas
+    except PermissionError:
+        lineas.append("  [!] No hay permisos para leer el archivo: " + ruta)
+        return lineas
+    except OSError as error:
+        lineas.append("  [!] No se pudo leer el archivo: " + str(error))
+        return lineas
+
+    lineas.append("SHA-256 actual: " + hash_actual)
+
+    referencias = cargar_referencias()
+    ruta_completa = os.path.abspath(ruta)
+
+    if ruta_completa not in referencias:
+        referencias[ruta_completa] = hash_actual
+        if guardar_referencias(referencias):
+            lineas.append("Estado: PRIMERA VEZ, el hash se guardo como referencia")
+        else:
+            lineas.append("  [!] No se pudo guardar el hash de referencia")
+    elif referencias[ruta_completa] == hash_actual:
+        lineas.append("Estado: OK, el archivo no fue modificado")
+    else:
+        lineas.append("Estado: ALERTA, el archivo fue MODIFICADO")
+        lineas.append("  Hash esperado: " + referencias[ruta_completa])
+        lineas.append("  Hash actual:   " + hash_actual)
+
+    lineas = lineas + demostrar_cambio(ruta)
+    return lineas

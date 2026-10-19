@@ -1,0 +1,40 @@
+# CyberGuard Analyzer - eventos de red de prueba
+# Datos SINTETICOS de laboratorio (IPs privadas inventadas, no son datos reales)
+# Los campos se separan con | (en un archivo .csv se separan con coma)
+# Las lineas que empiezan con # son comentarios y el programa las ignora
+fecha|ip_origen|ip_destino|puerto_origen|puerto_destino|protocolo|flags|metodo|ruta|bytes
+
+# trafico normal por HTTPS
+2026-10-16 14:01:02|10.0.0.15|10.0.0.8|51432|443|HTTPS|PA|GET|/index.html|1820
+2026-10-16 14:01:07|10.0.0.15|10.0.0.8|51433|443|HTTPS|PA|GET|/static/app.css|640
+
+# HTTP sin cifrar, puerto inseguro (FTP), metodos inseguros y mucho trafico saliente
+2026-10-16 14:02:11|10.0.0.22|10.0.0.8|49810|80|HTTP|PA|POST|/login|128
+2026-10-16 14:02:40|10.0.0.22|10.0.0.9|49900|21|TCP|PA|-|-|512
+2026-10-16 14:03:05|10.0.0.31|10.0.0.8|50112|8080|HTTP|PA|PUT|/uploads/archivo.txt|2048
+2026-10-16 14:03:30|10.0.0.31|10.0.0.8|50113|443|HTTPS|PA|DELETE|/api/usuarios/7|64
+2026-10-16 14:04:00|10.0.0.40|10.0.0.8|50200|443|HTTPS|PA|POST|/backup/subir|2500000
+
+# posible escaneo de puertos: la misma IP manda SYN a muchos puertos distintos
+2026-10-16 14:05:01|10.0.0.66|10.0.0.8|40001|22|TCP|S|-|-|0
+2026-10-16 14:05:02|10.0.0.66|10.0.0.8|40002|23|TCP|S|-|-|0
+2026-10-16 14:05:03|10.0.0.66|10.0.0.8|40003|25|TCP|S|-|-|0
+2026-10-16 14:05:04|10.0.0.66|10.0.0.8|40004|110|TCP|S|-|-|0
+2026-10-16 14:05:05|10.0.0.66|10.0.0.8|40005|139|TCP|S|-|-|0
+2026-10-16 14:05:06|10.0.0.66|10.0.0.8|40006|3389|TCP|S|-|-|0
+
+# indicadores de persistencia simulados (subir una llave SSH o una tarea programada)
+2026-10-16 14:06:10|10.0.0.77|10.0.0.8|51000|80|HTTP|PA|PUT|/home/admin/.ssh/authorized_keys|420
+2026-10-16 14:06:45|10.0.0.77|10.0.0.8|51001|443|HTTPS|PA|POST|/etc/cron.d/tarea_oculta|210
+
+# campo con caracteres peligrosos (la sanitizacion los quita)
+2026-10-16 14:07:00|10.0.0.15|10.0.0.8|51440|443|HTTPS|PA|GET|/buscar?q=<script>alert(1)</script>|300
+
+# lineas con errores (el programa las reporta y sigue funcionando)
+2026-10-16 14:08:00|10.0.0.15|10.0.0.8|51441|443|HTTPS
+2026-10-16 14:08:10|999.1.1.1|10.0.0.8|51442|443|HTTPS|PA|GET|/|100
+2026-10-16 14:08:20|10.0.0.15|10.0.0.8|51443|70000|TCP|S|-|-|0
+16/10/2026|10.0.0.15|10.0.0.8|51444|443|HTTPS|PA|GET|/|100
+2026-10-16 14:08:40|10.0.0.15|10.0.0.8|51445|443|HTTPS|PA|GET|/|muchos
+2026-10-16 14:08:50||10.0.0.8|51446|443|HTTPS|PA|GET|/|100
+2026-10-16 14:09:00|10.0.0.15|10.0.0.8|51447|443|FTPX|PA|FETCH|/|100

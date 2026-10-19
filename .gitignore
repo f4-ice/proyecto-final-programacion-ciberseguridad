@@ -1,0 +1,6 @@
+__pycache__/
+venv/
+.venv/
+.DS_Store
+# hashes guardados por integrity.py (dependen de cada computadora)
+output/hashes_referencia.txt

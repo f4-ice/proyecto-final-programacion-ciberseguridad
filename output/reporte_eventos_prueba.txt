@@ -1,0 +1,64 @@
+CyberGuard Analyzer - Reporte de analisis
+Fecha del analisis: 2026-10-18 22:33:03
+Archivo analizado: input/eventos_prueba.txt
+==================================================
+
+=== INGESTA DEL ARCHIVO ===
+Archivo: input/eventos_prueba.txt
+Registros leidos: 22
+Errores de entrada: 1
+  [!] Linea 34: tiene 6 campos y se esperaban 10
+Campos sanitizados: 1
+  [*] Linea 31: se limpiaron caracteres no permitidos en 'ruta' -> /buscar?q=scriptalert(1)/script
+
+=== VALIDACION DE REGISTROS ===
+Registros revisados: 22
+Registros validos: 16
+Registros con errores: 6
+  [!] Linea 35: IP de origen invalida '999.1.1.1'
+  [!] Linea 36: puerto de destino invalido '70000'
+  [!] Linea 37: fecha invalida '16/10/2026'
+  [!] Linea 38: bytes invalido 'muchos'
+  [!] Linea 39: falta el campo 'ip_origen'
+  [!] Linea 40: protocolo desconocido 'FTPX', metodo HTTP desconocido 'FETCH'
+
+=== INTEGRIDAD SHA-256 ===
+Archivo: input/eventos_prueba.txt
+SHA-256 actual: 75c56a3f26bcc426690c401f82982e0bd4ef37ee316bd37e42b9da2f7c7043a7
+Estado: OK, el archivo no fue modificado
+Demostracion (se agrega 1 espacio al final, solo en memoria):
+  Hash original:   75c56a3f26bcc426690c401f82982e0bd4ef37ee316bd37e42b9da2f7c7043a7
+  Hash modificado: 5ba6701789645107bf8b48e424be8fb7cad8dc24199b50414c68546139b66d37
+  Resultado: los hashes son diferentes, cualquier cambio se detecta
+
+=== ANALISIS TCP/HTTP Y PERSISTENCIA ===
+Registros analizados: 16
+Hallazgos: 13
+  Severidad MEDIA: 3
+  Severidad ALTA: 10
+- [MEDIA] HTTP sin cifrar
+    Evidencia: Linea 12: 10.0.0.22 -> 10.0.0.8:80
+- [ALTA] Puerto inseguro (FTP)
+    Evidencia: Linea 13: 10.0.0.22 -> 10.0.0.9:21
+- [MEDIA] HTTP sin cifrar
+    Evidencia: Linea 14: 10.0.0.31 -> 10.0.0.8:8080
+- [ALTA] Metodo HTTP inseguro (PUT)
+    Evidencia: Linea 14: 10.0.0.31 -> 10.0.0.8:8080
+- [ALTA] Metodo HTTP inseguro (DELETE)
+    Evidencia: Linea 15: 10.0.0.31 -> 10.0.0.8:443
+- [ALTA] Posible exfiltracion
+    Evidencia: Linea 16: 10.0.0.40 -> 10.0.0.8:443 (2500000 bytes)
+- [ALTA] Puerto inseguro (Telnet)
+    Evidencia: Linea 20: 10.0.0.66 -> 10.0.0.8:23
+- [ALTA] Puerto inseguro (POP3)
+    Evidencia: Linea 22: 10.0.0.66 -> 10.0.0.8:110
+- [MEDIA] HTTP sin cifrar
+    Evidencia: Linea 27: 10.0.0.77 -> 10.0.0.8:80
+- [ALTA] Metodo HTTP inseguro (PUT)
+    Evidencia: Linea 27: 10.0.0.77 -> 10.0.0.8:80
+- [ALTA] Indicador de persistencia (authorized_keys)
+    Evidencia: Linea 27: 10.0.0.77 -> 10.0.0.8:80 PUT /home/admin/.ssh/authorized_keys
+- [ALTA] Indicador de persistencia (cron)
+    Evidencia: Linea 28: 10.0.0.77 -> 10.0.0.8:443 POST /etc/cron.d/tarea_oculta
+- [ALTA] Posible escaneo de puertos
+    Evidencia: 10.0.0.66 envio SYN a 6 puertos: [22, 23, 25, 110, 139, 3389]
