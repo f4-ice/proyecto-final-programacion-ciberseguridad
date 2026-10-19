@@ -22,9 +22,21 @@ def leer_archivo(ruta):
     lineas = archivo.readlines()
     archivo.close()
 
+    if len(lineas) == 0 or lineas[0].strip() == "":
+        errores.append("El archivo esta vacio")
+        return registros, errores
+    
+    #Si el encabezado trae "|" el separados es "|", si no va a ser la coma
+    separador = ","
+    if "|" in lineas[0]:
+        separador = "|"
+
+
     for i in range(1, len(lineas)):
         numero_linea = i + 1
-        partes = lineas[i].strip().split(",")
+        if lineas[i].strip() == "":
+            continue
+        partes = lineas[i].strip().split(separador)
 
         if len(partes) != 9:
             errores.append("Linea " + str(numero_linea) + ": formato incorrecto")
@@ -116,7 +128,19 @@ def mostrar(resultado):
         print("-", h["severidad"], "|", h["regla"])
         print("   Evidencia:", h["evidencia"])
 
+def ejecutar(ruta):
+    """Punto de entrada que llama main.py (opcion 4 del menu). Nunca lanza errores"""
+    try:
+        resultado = analizar_trafico(ruta)
+        mostrar(resultado)
+        if resultado["registros"] == 0:
+            resultado["estado"] = "error"
+        else:
+            resultado["estado"] = "success"
+    except Exception as error:
+        print("[!] Error inesperado en el programa", error)
+        resultado = {"estado": "error", "error": str(error)}
+        return resultado
+
 if __name__ == "__main__":
-    mostrar(analizar_trafico("data/trafico_sint.csv"))
-    print()
-    mostrar(analizar_trafico("data/no_existe.csv"))
+    ejecutar("data/trafico_sint.csv")
